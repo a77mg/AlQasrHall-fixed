@@ -1,0 +1,83 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper: check if user is authenticated
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    // Helper: get current user role from users collection
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    
+    // Role-specific helpers
+    function isAdmin() {
+      return isSignedIn() && getUserRole() == 'Admin';
+    }
+
+    function isManager() {
+      return isSignedIn() && getUserRole() == 'Manager';
+    }
+
+    function isAccountant() {
+      return isSignedIn() && getUserRole() == 'Accountant';
+    }
+
+    function isReception() {
+      return isSignedIn() && getUserRole() == 'Reception';
+    }
+
+    // Bookings Collection
+    // - Admin, Manager, and Reception can read and write bookings
+    // - Accountant can read bookings (requires access to calculate balances)
+    match /bookings/{bookingId} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin() || isManager() || isReception();
+      allow delete: if isAdmin();
+    }
+    
+    // Payments and Accounting Operations
+    // - Admin, Manager, and Accountant have read and write permissions
+    // - Reception is restricted and cannot modify or insert financial records
+    match /payments/{paymentId} {
+      allow read: if isAdmin() || isManager() || isAccountant();
+      allow create: if isAdmin() || isManager() || isAccountant();
+      allow update: if isAdmin() || isManager() || isAccountant();
+      allow delete: if isAdmin();
+    }
+    
+    // Financial reports and exports
+    // - Admin only. Hide/restrict completely from Manager, Accountant, Reception
+    match /financial_reports/{reportId} {
+      allow read, write: if isAdmin();
+    }
+    
+    // User accounts and security credentials
+    // - Manageable strictly by Admin
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // System audit logs & database metadata
+    // - Managed and viewed by Admin only, but other users can log automated actions
+    match /audit_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    // Database backups and recovery log metadata
+    // - Checked and handled by Admin only
+    match /backups/{backupId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}
